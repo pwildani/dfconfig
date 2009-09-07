@@ -1,4 +1,4 @@
-#!/usr/local/bin/python2.6
+#!/usr/local/bin/python3
 
 """
 Dwarf Fortress config file representation.
@@ -119,12 +119,12 @@ def ParseToken(token):
   return token
 
 
-class Tag:
+class Tag(object):
   """A [TAG:WITH:ARGS]."""
   MAX_TOKENS = None
   MIN_TOKENS = None
   def __init__(self, tokens):
-    self.tokens = map(ParseToken, tokens)
+    self.tokens = list(map(ParseToken, tokens))
     self.filename = None
     self.start_line = None
     self.comment = '\n'
@@ -156,7 +156,7 @@ def NewTag(tokens):
   return Tag(tokens)
 
 
-class DFObject:
+class DFObject(object):
   """A CREATURE or MATGLOSS, etc."""
   START_TAGS = ()
   SUBSECTIONS = ()
@@ -210,8 +210,8 @@ class DFObject:
     start_tags = []
     subsections = []
     tags = []
-    for field, value in cls.__dict__.iteritems():
-      if isinstance(value, types.ClassType):
+    for field, value in cls.__dict__.items():
+      if isinstance(value, type):
         if issubclass(value, ObjectStartTag):
           start_tags.append(value)
         elif issubclass(value, Subsection):
@@ -237,14 +237,22 @@ class Subsection(DFObject):
 def EnsureSubclass(superclass, target):
   # Force target to be a subclass of superclass
   if not issubclass(target, superclass):
-    bases = list(target.__bases__)
-    bases.append(superclass)
-    target.__bases__ = tuple(bases)
-    assert issubclass(target, superclass)
-    # Alternate: rebuild the class with a different bases list:
-    #target = type(target.__name__,
-    #              tuple(list(target.__bases__) + [superclass, object]),
-    #              dict(target.__dict__))
+      bases = list(target.__bases__)
+      i = bases.index(object)
+      bases[i:i] = [superclass]
+      try:
+        # Approach 1: inject superclass directly into __bases__
+        target.__bases__ = tuple(bases)
+        # Typical error: 
+        # TypeError: __bases__ assignment: 'ObjectStartTag' deallocator differs
+        # from 'object'
+      except TypeError:
+        # Approach 2: rebuild the class with a different bases list:
+        # This has the drawback of not preserving target's identity.
+        target = type(target.__name__,
+                      tuple(bases),
+                      dict(target.__dict__))
+  assert issubclass(target, superclass)
   return target
   
 
@@ -267,7 +275,7 @@ def START_TAG(name=None):
   return _START_TAG
 
 
-class DFConfig:
+class DFConfig(object):
   """A dwarf fortress configuration set."""
 
   def __init__(self, name):
@@ -290,7 +298,7 @@ class DFConfig:
     return ''.join(self.Render(f) for f in self.toplevel)
 
   def Validate(self):
-    for tokens in self.toplevel.itervalues():
+    for tokens in self.toplevel.values():
       for tag in tokens:
         tag.Validate(self)
 
@@ -331,8 +339,8 @@ class DFConfig:
 
         else:
           # Unrecognized tag
-          print 'current_type', current_type
-          print 'current_type.START', current_type.START_TAGS
+          print('current_type', current_type)
+          print('current_type.START', current_type.START_TAGS)
 
           raise UnknownToplevelTag(tag, 'Unknown top-level tag: %s' % tag)
           
@@ -593,11 +601,11 @@ if __name__ == '__main__':
   for filename in sys.argv[1:]:
     try:
       cfg.ImportFile(filename)
-      print '%s: %d toplevel objects' % (filename, len(cfg.toplevel[filename]))
-    except FileLineError, ex:
-      print '%s:%s: %s' % (ex.filename, ex.linenum, ex)
-    except Error, ex:
-      print '%s: %s: %s' % (filename, type(ex).__name__, ex)
+      print('%s: %d toplevel objects' % (filename, len(cfg.toplevel[filename])))
+    except FileLineError as ex:
+      print('%s:%s: %s' % (ex.filename, ex.linenum, ex))
+    except Error as ex:
+      print('%s: %s: %s' % (filename, type(ex).__name__, ex))
 
     # Find typos in the render code. Needs to be eyeballed for a real test.
     cfg.Render(filename)
