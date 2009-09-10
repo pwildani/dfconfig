@@ -195,10 +195,8 @@ class DFConfigSyntaxHelper:
                     name)
 
 
-
-
-
 def TagStream(filename, input, tag_factory):
+  """Turn input into a sequence of Tags and ToplevelComments."""
 
   # A half assed state machine. I'm quite sure this is very slow.
   class Parser:
