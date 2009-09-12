@@ -1,32 +1,70 @@
+"""The raws syntax for Dwarf Fortress version 0.28.181.40d."""
+
 import df_syntax
+from collections import defaultdict
 
 C = df_syntax.DFConfigSyntaxHelper()
-NewTag = C.NewTag
-def GetObjectType(typename):
-  return C._df_object_types[typename]
+
+def NewToplevelTag(tokens):
+  if tokens[0] == 'OBJECT':
+    return OBJECT(tokens)
+  return df_syntax.Tag(tokens)
 
 # Bootstrap the OBJECT mode switch tag.
-@C.tag
 class OBJECT(df_syntax.Tag):
   def __init__(self, tokens):
     df_syntax.Tag.__init__(self, tokens)
 
     # Generic OBJECT == TAG
-    if self.ObjectType() not in C._df_object_types:
+    if self.ObjectType() not in self.OBJECT_TYPES:
       self.DeclareGenericObjectType(self.ObjectType())
+
+  OBJECT_TYPES = defaultdict(list)
+  OBJECT_START_TAGS = defaultdict(dict)
+  OBJECT_START_TAG_NAMES = defaultdict(dict)
+
+  @classmethod
+  def register(cls, typename, name=None):
+    def _register(impl):
+      impl = C.df_object(impl)
+      cls.OBJECT_TYPES[typename].append(impl)
+      if not impl.START_TAGS:
+        # Force a default start tag named after the object type
+        thename = name or impl.__name__
+        impl.START_TAGS = [C.start_tag(type(thename, (), {}))]
+      for tagtype in impl.START_TAGS:
+        cls.OBJECT_START_TAG_NAMES[typename][tagtype.__name__] = tagtype
+        cls.OBJECT_START_TAGS[typename][tagtype.__name__] = impl
+      return impl
+    return _register
+
+  def IsStartTag(self, tag):
+    return tag.TagName() in self.StartTags()
+
+  def StartTags(self):
+    return self.OBJECT_START_TAGS[self.ObjectType()]
+
+  def Instantiate(self, tag):
+    return self.StartTags()[tag.TagName()](tag)
+
+  def NewTag(self, tokens):
+    try:
+      return self.OBJECT_START_TAG_NAMES[self.ObjectType()][tokens[0]](tokens)
+    except KeyError:
+      return None
   
   def ObjectType(self):
     return self.tokens[1]
 
   def DeclareGenericObjectType(self, objectname):
-
-    @C.df_object(name=objectname)
+    @self.register(typename=objectname, name=objectname)
     class _Object(df_syntax.DFObject):
 
       @C.start_tag(name=objectname)
       class StartTag:
         MAX_TOKENS = 2
         MIN_TOKENS = 2
+
         def ObjectType(self):
           return self.tokens[0]
 
@@ -37,98 +75,98 @@ class OBJECT(df_syntax.Tag):
     _Object.__name__ = objectname
 
 
-# DESCRIPTOR objects start with the COLOR or SHAPE tags
-@C.df_object
-class DESCRIPTOR:
-  @C.start_tag
-  class COLOR: pass
-  @C.start_tag
-  class SHAPE: pass
+# DESCRIPTOR objects are COLOR or SHAPE
+DESCRIPTOR = OBJECT.register('DESCRIPTOR')
+@DESCRIPTOR
+class COLOR: pass
 
-# ITEM objects start with the ITEM_* tags
-@C.df_object
-class ITEM:
-  @C.start_tag
-  class ITEM_AMMO: pass
+@DESCRIPTOR
+class SHAPE: pass
 
-  @C.start_tag
-  class ITEM_ARMOR: pass
+# ITEM objects are all of the many ITEM_*s.
+ITEM = OBJECT.register('ITEM')
+@ITEM
+class ITEM_AMMO: pass
 
-  @C.start_tag
-  class ITEM_FOOD: pass
+@ITEM
+class ITEM_ARMOR: pass
 
-  @C.start_tag
-  class ITEM_GLOVES: pass
+@ITEM
+class ITEM_FOOD: pass
 
-  @C.start_tag
-  class ITEM_HELM: pass
+@ITEM
+class ITEM_GLOVES: pass
 
-  @C.start_tag
-  class ITEM_INSTRUMENT: pass
+@ITEM
+class ITEM_HELM: pass
 
-  @C.start_tag
-  class ITEM_PANTS: pass
+@ITEM
+class ITEM_INSTRUMENT: pass
 
-  @C.start_tag
-  class ITEM_SHIELD: pass
+@ITEM
+class ITEM_PANTS: pass
 
-  @C.start_tag
-  class ITEM_SHOES: pass
+@ITEM
+class ITEM_SHIELD: pass
 
-  @C.start_tag
-  class ITEM_SIEGEAMMO: pass
+@ITEM
+class ITEM_SHOES: pass
 
-  @C.start_tag
-  class ITEM_TOY: pass
+@ITEM
+class ITEM_SIEGEAMMO: pass
 
-  @C.start_tag
-  class ITEM_TRAPCOMP: pass
+@ITEM
+class ITEM_TOY: pass
 
-  @C.start_tag
-  class ITEM_WEAPON: pass
+@ITEM
+class ITEM_TRAPCOMP: pass
 
-
-# MATGLOSS objects start with the MATGLOSS_* tags
-@C.df_object
-class MATGLOSS:
-  @C.start_tag
-  class MATGLOSS_METAL: pass
-
-  @C.start_tag
-  class MATGLOSS_PLANT: pass
-
-  @C.start_tag
-  class MATGLOSS_STONE: pass
-
-  @C.start_tag
-  class MATGLOSS_WOOD: pass
+@ITEM
+class ITEM_WEAPON: pass
 
 
+# MATGLOSS objects are all of the various MATGLOSS_*
+MATGLOSS = OBJECT.register('MATGLOSS')
 
-# LANGUAGE objects start with TRANSLATION, SYMBOL, or WORD tags
-@C.df_object
-class LANGUAGE:
-  @C.start_tag
-  class TRANSLATION: pass
+@MATGLOSS
+class MATGLOSS_METAL: pass
 
-  @C.start_tag
-  class SYMBOL: pass
+@MATGLOSS
+class MATGLOSS_PLANT: pass
 
-  @C.start_tag
-  class WORD: pass
+@MATGLOSS
+class MATGLOSS_STONE: pass
+
+@MATGLOSS
+class MATGLOSS_WOOD: pass
 
 
-# BODY startswith both BODY and BODYGLOSS
-@C.df_object
+
+# LANGUAGE objects are TRANSLATION, SYMBOL, or WORD
+LANGUAGE = OBJECT.register('LANGUAGE')
+
+@LANGUAGE
+class TRANSLATION: pass
+
+@LANGUAGE
+class SYMBOL: pass
+
+@LANGUAGE
+class WORD: pass
+
+
+# BODY objects are BODY and BODYGLOSS
+BODY = OBJECT.register('BODY')
+@BODY
 class BODY:
-  @C.start_tag
-  class BODY: pass
-
-  @C.start_tag
-  class BODYGLOSS: pass
 
   @C.section
-  class BP: pass
+  class BP:
+    """The BodyPart section."""
+
+@BODY
+class BODYGLOSS: pass
 
 
-# TODO: [CREATURE][ATTACK]. Might be hard to do without listing all of the non-attack creature tags.
+# TODO: [CREATURE][ATTACK]. Might be hard to do without listing all of the
+# non-attack creature tags.

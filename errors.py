@@ -14,7 +14,8 @@ class TagError(FileLineError):
   """An error related to a specific tag."""
   def __init__(self, tag, message):
     self.tag = tag
-    FileLineError.__init__(self, tag.filename, tag.start_line, message)
+    FileLineError.__init__(self, tag.filename, tag.start_line,
+                           '%s: %s' % (tag, message))
 
 
 class InvalidTag(TagError):

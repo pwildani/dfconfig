@@ -2,25 +2,6 @@
 Miscellaneous utilities.
 """
 
-class Registry(dict):
-  """Map name -> object, with an @decl."""
-  def __init__(self, name):
-    self.name = name
-
-  def __call__(self, target=None, name=None):
-    def _declaration(impl):
-      if name is None:
-        thename = impl.__name__
-      else:
-        thename = name
-      self[thename] = impl
-      return impl
-    if target is not None:
-      return _declaration(target)
-    _declaration.__name__ = self.name
-    return _declaration
-
-
 SYMBOL_TABLE = {}
 def Symbol(val):
   """Save ram by cashing strings here. Rather like intern."""

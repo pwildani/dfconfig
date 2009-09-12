@@ -17,7 +17,7 @@ instance. This is usually, but not always, the same as the name of the type.
 
 API Example:
 
-  cfg = DFConfig('foo')
+  cfg = DFRawsConfig('foo')
   cfg.ImportFile('raw/objects/reaction_standard.txt')
   #       OBJECT      START TAG    NAME
   r = cfg['REACTION']['REACTION']['BITUMINOUS_COAL_TO_COKE']
@@ -35,7 +35,7 @@ import df_syntax
 import errors
 
 
-class DFConfig(object):
+class DFRawsConfig(object):
   """A dwarf fortress configuration set.
 
   Arguments:
@@ -53,14 +53,20 @@ class DFConfig(object):
   def __getitem__(self, key):
     return self.objects[key]
 
-  def Render(self, filename):
+  def RenderSingleFile(self, filename):
     out = []
     for elt in self.toplevel[filename]:
       out.append(elt.Render())
     return ''.join(out)
 
+  def RenderAll():
+    for _, objs in sorted(self.toplevel.items()):
+      for obj in objs:
+        for bit in obj.Render():
+          yield bit
+
   def __str__(self):
-    return ''.join(self.Render(f) for f in self.toplevel)
+    return ''.join(self.RenderAll())
 
   def Validate(self):
     for tokens in self.toplevel.values():
@@ -68,67 +74,98 @@ class DFConfig(object):
         tag.Validate(self)
 
   def ImportFile(self, filename):
-    return self.ImportStream(filename, open(filename, 'r'))
+    with open(filename, 'r') as configfile:
+      return self.ImportStream(filename, configfile)
 
   def ImportStream(self, filename, stream):
+    current_object = None
     current_def = None
     current_type = None
     current_typename = None
     self.toplevel[filename] = file_index = []
+    def TagFactory(tokens):
+      tag = None
+      if current_object:
+        # Try a tag known to the current object set
+        tag = current_object.NewTag(tokens)
+      if not tag:
+        # Then try a generic tag in this syntax
+        tag = self.syntax.NewToplevelTag(tokens)
+      if not tag:
+        # Finally, fall back to a generic tag
+        tag = df_syntax.Tag(tokens)
+      return tag
 
-    for tag in df_syntax.TagStream(filename, stream, self.syntax.NewTag):
+    for tag in df_syntax.TagStream(filename, stream, TagFactory):
       if isinstance(tag, df_syntax.Tag):
         if isinstance(tag, self.syntax.OBJECT):
           # Switch types
-          current_type = self.syntax.GetObjectType(tag.ObjectType())
+          current_object = tag
           current_typename = tag.ObjectType()
           current_def = None
           file_index.append(tag)
 
-        elif current_type and isinstance(tag, current_type.START_TAGS):
+        elif current_object and current_object.IsStartTag(tag):
           # New object
-          current_def = current_type(tag)
+          if current_def:
+            self.RecordToplevelDefinition([type, subtype, name],
+                                          current_def)
+
+          current_def = current_object.Instantiate(tag)
           type = current_typename
           subtype = tag.ObjectType()
           name = tag.ObjectIdentifier()
-          if name in self.objects[type][subtype]:
-            raise errors.DuplicateDefinition(self.objects[type][subtype][name],
-                                      current_def)
-          else:
-            self.objects[type][subtype][name] = current_def
-          file_index.append(current_def)
 
         elif current_def:
           # Feed the current object
           current_def.AppendTag(tag)
+          # TODO(pwilson): allow it to reject the tag and forcibly end the
+          # current definition
 
         else:
           # Unrecognized tag
-          print('current_type', current_type)
-          print('current_type.START', current_type.START_TAGS)
-
-          raise errors.UnknownToplevelTag(tag, 'Unknown top-level tag: %s' % tag)
+          self.OnUnknownTag(tag)
           
       else:
         # Not a tag
         file_index.append(tag)
+    if current_def:
+      self.RecordToplevelDefinition([type, subtype, name],
+                                    current_def)
     
+  def OnDuplicateDefinition(self, path, old_definition, new_definition):
+    raise errors.DuplicateDefinition(old_definition, new_definition)
+
+  def OnUnknownTag(self, tag):
+    raise errors.UnknownToplevelTag(tag, 'Unknown top-level tag: %s' % tag)
+    
+  def RecordToplevelDefinition(self, path, definition):
+    type, subtype, name = path
+    if name in self.objects[type][subtype]:
+      self.OnDuplicateDefinition([type, subtype, name],
+                                 self.objects[type][subtype][name],
+                                 definition)
+    else:
+      self.objects[type][subtype][name] = definition
+      self.toplevel[definition.SourceFilename()].append(definition)
+
 
 if __name__ == '__main__':
   # Test driver code. This doesn't do anything particularly useful, but you can
   # use it to check for duplicate definitions and basic syntax errors.
   import sys
   import syntax_0_28_181_40d
-  cfg = DFConfig(syntax_0_28_181_40d)
+  cfg = DFRawsConfig(syntax_0_28_181_40d)
   for filename in sys.argv[1:]:
     try:
       cfg.ImportFile(filename)
       print('%s: %d toplevel objects' % (filename, len(cfg.toplevel[filename])))
+      cfg.Validate()
     except errors.FileLineError as ex:
       print('%s:%s: %s' % (ex.filename, ex.linenum, ex))
     except errors.Error as ex:
       print('%s: %s: %s' % (filename, type(ex).__name__, ex))
 
     # Find typos in the render code. Needs to be eyeballed for a real test.
-    cfg.Render(filename)
+    cfg.RenderSingleFile(filename)
 

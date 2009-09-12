@@ -25,6 +25,9 @@ class Tag(object):
     self.start_line = None
     self.comment = '\n'
 
+  def SourceFilename(self):
+    return self.filename
+
   def Validate(self, config):
     if self.MAX_TOKENS and len(self.tokens) > self.MAX_TOKENS:
       raise errors.InvalidTag(self, 'too many arguments.')
@@ -46,11 +49,15 @@ class Tag(object):
 
 
 class ToplevelComment:
-  def __init__(self, text):
+  def __init__(self, filename, text):
+    self.filename = filename
     self.text = text
 
   def Render(self):
      return self.text
+
+  def SourceFilename(self):
+    return self.filename
 
   def Validate(self, config):
     pass
@@ -91,6 +98,9 @@ class DFObject(object):
 
   def __str__(self):
     return '%s (+ %d tags)' % (self.typetag, len(self.tags))
+
+  def SourceFilename(self):
+    return self.typetag.SourceFilename()
 
   def Render(self):
     out = []
@@ -147,8 +157,7 @@ class ObjectStartTag(Tag):
 
 class DFConfigSyntaxHelper:
   def __init__(self):
-    self.tag = util.Registry('tag')
-    self._df_object_types = util.Registry('df_object')
+    pass
 
   def _declaration(impl):
     def _declaration_impl(self, target=None, **kwargs):
@@ -167,7 +176,6 @@ class DFConfigSyntaxHelper:
       class THE_OBJECT_START_TAG: pass
     """
     target = util.EnsureSubclass(DFObject, target)
-    self._df_object_types(name=name)(target)
     target._GrovelForImplicitDefinitions()
     return target
      
@@ -191,8 +199,10 @@ class DFConfigSyntaxHelper:
   @_declaration
   def start_tag(self, target=None, name=None):
     """Declare a start tag for this object."""
-    return self.tag(util.EnsureSubclass(ObjectStartTag, target),
-                    name)
+    target = util.EnsureSubclass(ObjectStartTag, target)
+    if name:
+      target.__name__ = name
+    return target
 
 
 def TagStream(filename, input, tag_factory):
@@ -273,7 +283,7 @@ def TagStream(filename, input, tag_factory):
                          'Unclosed tag: %s' % (self.tag,))
 
       if self.comment:
-        yield ToplevelComment(''.join(self.comment))
+        yield ToplevelComment(filename, ''.join(self.comment))
 
     def CurrentLine(self):
      return self.counts['\n'] + 1
