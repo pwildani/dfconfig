@@ -8,8 +8,22 @@ def Symbol(val):
   return SYMBOL_TABLE.setdefault(val, val)
 
 
+def declaration(impl):
+  """Declare an @foo.
+
+  This implements the behavior of allowing (keyword=) args without requiring
+  them at the cost of disallowing positional args. A positional arg is assumed
+  to be the target of the @foo.
+  """
+  def _declaration_impl(self, __target=None, **kwargs):
+    if __target is not None:
+      return impl(self, __target, **kwargs)
+    return lambda __target: impl(self, __target, **kwargs)
+  return _declaration_impl
+
+
 def EnsureSubclass(superclass, target):
-  # Force target to be a subclass of superclass
+  """Force target to be a subclass of superclass."""
   if not issubclass(target, superclass):
       bases = list(target.__bases__)
       i = bases.index(object)

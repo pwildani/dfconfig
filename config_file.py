@@ -39,7 +39,8 @@ class DFRawsConfig(object):
   """A dwarf fortress configuration set.
 
   Arguments:
-    syntax: A DFConfigConfigSyntax*.
+    syntax: A syntax definition.
+       Must have a NewToplevelTag method and an OBJECT tag.
   """
 
   def __init__(self, syntax):
@@ -74,7 +75,7 @@ class DFRawsConfig(object):
         tag.Validate(self)
 
   def ImportFile(self, filename):
-    with open(filename, 'r') as configfile:
+    with open(filename, 'rb') as configfile:
       return self.ImportStream(filename, configfile)
 
   def ImportStream(self, filename, stream):

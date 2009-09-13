@@ -2,6 +2,7 @@
 
 Tags and their organization into objects.
 """
+import sys
 from collections import defaultdict
 import util
 import errors
@@ -159,14 +160,20 @@ class DFConfigSyntaxHelper:
   def __init__(self):
     pass
 
-  def _declaration(impl):
-    def _declaration_impl(self, target=None, **kwargs):
-      if target is not None:
-        return impl(self, target, **kwargs)
-      return lambda target: impl(self, target, **kwargs)
-    return _declaration_impl
+  def DeclareObjectTag(self, name='OBJECT', bases=None):
+    if bases is None:
+      bases = (ObjectTagTemplate,)
+    return type(name, bases, dict(
+      SYNTAX_HELPER=self,
+      OBJECT_TYPES=defaultdict(list),
+      OBJECT_START_TAGS=defaultdict(dict),
+      OBJECT_START_TAG_NAMES=defaultdict(dict),
+    ))
+    
 
-  @_declaration
+    return ObjectTagTemplate
+
+  @util.declaration
   def df_object(self, target, name=None):
     """Declare a DF object type.
 
@@ -185,7 +192,7 @@ class DFConfigSyntaxHelper:
       return self.tag[name](tokens)
     return Tag(tokens)
 
-  @_declaration
+  @util.declaration
   def section(self, target, name=None):
     """Declare a subsection within an object."""
     target = util.EnsureSubclass(Subsection, target)
@@ -196,7 +203,7 @@ class DFConfigSyntaxHelper:
     target._GrovelForImplicitDefinitions()
     return target
 
-  @_declaration
+  @util.declaration
   def start_tag(self, target=None, name=None):
     """Declare a start tag for this object."""
     target = util.EnsureSubclass(ObjectStartTag, target)
@@ -270,13 +277,13 @@ def TagStream(filename, input, tag_factory):
       return self._state_toplevel
 
     def Parse(self, input):
-      char = input.read(1)
+      char = str(input.read(1), 'latin-1')
       while char:
         self.counts[char] += 1
         results = self.state[char](char)
         for tag in results:
           yield tag
-        char = input.read(1)
+        char = str(input.read(1), 'latin-1')
 
       if self.tag:
         raise ParseError(filename, parser.tag_start,
@@ -292,3 +299,56 @@ def TagStream(filename, input, tag_factory):
   for tag in parser.Parse(input):
     yield tag
 
+
+class ObjectTagTemplate(Tag):
+
+  def __init__(self, tokens):
+    Tag.__init__(self, tokens)
+
+    # Generic OBJECT == TAG
+    if self.ObjectType() not in self.OBJECT_TYPES:
+      self.DeclareGenericObjectType(self.ObjectType())
+
+  @classmethod
+  def register(cls, typename, name=None):
+    """Create a scope and an @SCOPE to register objects in that scope."""
+    def _register(impl):
+      impl = cls.SYNTAX_HELPER.df_object(impl)
+      cls.OBJECT_TYPES[typename].append(impl)
+      if not impl.START_TAGS:
+        # Force a default start tag named after the object type
+        thename = name or impl.__name__
+        impl.START_TAGS = [cls.SYNTAX_HELPER.start_tag(type(thename, (), {
+            'MAX_TOKENS': 2,
+            'MIN_TOKENS': 2
+        }))]
+      for tagtype in impl.START_TAGS:
+        cls.OBJECT_START_TAG_NAMES[typename][tagtype.__name__] = tagtype
+        cls.OBJECT_START_TAGS[typename][tagtype.__name__] = impl
+      return impl
+    return _register
+
+  def IsStartTag(self, tag):
+    return tag.TagName() in self.StartTags()
+
+  def StartTags(self):
+    return self.OBJECT_START_TAGS[self.ObjectType()]
+
+  def Instantiate(self, tag):
+    """Construct a new object from the given start tag."""
+    return self.StartTags()[tag.TagName()](tag)
+
+  def NewTag(self, tokens):
+    try:
+      return self.OBJECT_START_TAG_NAMES[self.ObjectType()][tokens[0]](tokens)
+    except KeyError:
+      return None
+  
+  def ObjectType(self):
+    return self.tokens[1]
+
+  @classmethod
+  def DeclareGenericObjectType(cls, objectname):
+    """If there's an unknown [OBJECT:foo] in the config, allow [foo:BAR]."""
+    print('Declaring generic OBJECT', objectname, file=sys.stderr)
+    cls.register(objectname)(type(objectname, (), {}))
